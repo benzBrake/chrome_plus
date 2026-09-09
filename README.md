@@ -24,6 +24,7 @@ Chrome++ Next is a `version.dll` injection project for Google Chrome. It is load
 - The recommended installation method is to use the [Chrome offline installer package](https://github.com/Bush2021/chrome_installer), extract it twice, and use the unpacked Chrome program files directly.
 - The project is intended for portable Chrome deployments. If you keep updater components or other Chrome remnants on the system, you are responsible for the resulting environment-specific behavior.
 - If `version.dll` is not loaded correctly, you can try [setdll](https://github.com/Bush2021/setdll/).
+- Portable Brave works with the same steps: place `version.dll` next to `brave.exe` (Brave keeps Chromium's `chrome.dll` version-directory layout and statically imports `version.dll`, and UIA class matching accepts Brave's `Brave`-prefixed class names, so tab gestures work without extra configuration). Brave stays outside the supported targets above.
 
 ## Capability Overview
 ### Tab and bookmark behavior
@@ -49,7 +50,7 @@ Chrome++ Next is a `version.dll` injection project for Google Chrome. It is load
 ### Browser environment controls
 - Ignore enterprise policies with `ignore_policies`.
 - Enable the `win32k` fallback only when Chrome++ itself causes startup crashes.
-- Suppress Chrome's false "out of date" upgrade notification on portable installs with `suppress_false_upgrade_notification`.
+- Suppress Chrome's false "out of date" upgrade notification on portable installs with `suppress_false_upgrade_notification` (also covers Brave's `BraveSoftware\Update` registry root).
 - Additional public options such as `show_password` remain documented in [`src/chrome++.ini`](src/chrome++.ini).
 
 ## Configuration Reference

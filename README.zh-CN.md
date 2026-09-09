@@ -24,6 +24,7 @@ Chrome++ Next 是一个 `version.dll` 注入项目，会与 `chrome.exe` 一同�
 - 推荐使用 [Chrome 离线安装包](https://github.com/Bush2021/chrome_installer)，解压两次后直接使用解包得到的 Chrome 程序文件。
 - 本项目面向便携式 Chrome 部署场景。如果系统中保留了 updater 组件或其它 Chrome 遗留项，由此产生的环境问题需要自行处理。
 - 如果 `version.dll` 没有被正确加载，可以尝试 [setdll](https://github.com/Bush2021/setdll/)。
+- 便携版 Brave 同样适用：将 `version.dll` 放在 `brave.exe` 同目录即可（Brave 保留了 Chromium 的 `chrome.dll` 版本目录结构，`brave.exe` 静态导入 `version.dll`，且 UIA 类名匹配会自动兼容 Brave 的 `Brave` 前缀重命名，标签页手势无需额外配置）。Brave 仍不属于上述正式支持目标。
 
 ## 功能概览
 ### 标签页与书签行为
@@ -49,7 +50,7 @@ Chrome++ Next 是一个 `version.dll` 注入项目，会与 `chrome.exe` 一同�
 ### 浏览器环境控制
 - 通过 `ignore_policies` 忽略企业策略。
 - 仅在 Chrome++ 自身导致启动崩溃时再考虑启用 `win32k` 兜底选项。
-- 通过 `suppress_false_upgrade_notification` 抑制便携版上错误的“已过期”升级提示。
+- 通过 `suppress_false_upgrade_notification` 抑制便携版上错误的“已过期”升级提示（同时覆盖 Brave 的 `BraveSoftware\Update` 注册表根）。
 - `show_password` 等其它公开选项仍以 [`src/chrome++.ini`](src/chrome++.ini) 为准。
 
 ## 配置说明
