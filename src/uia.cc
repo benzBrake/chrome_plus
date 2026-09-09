@@ -104,9 +104,28 @@ UiaSession& GetThreadLocalUiaSession() {
   return *session;
 }
 
-bool CreateClassCondition(const ComPtr<IUIAutomation>& automation,
-                          std::wstring_view class_name,
-                          ComPtr<IUIAutomationCondition>* condition) {
+// Chromium forks subclass Chrome's Views classes under their own prefix:
+// Brave renames `Tab` to `BraveTab`, `HorizontalTabStripRegionView` to
+// `BraveHorizontalTabStripRegionView`, and so on. Class-name matching accepts
+// either the Chromium name or its Brave-prefixed spelling. Divergences that a
+// prefix cannot express are handled with explicit variants where the
+// conditions are built (`BraveTabContainer` for `TabContainerImpl`,
+// `BraveNewTabButton` for the new-tab `TabStripControlButton`).
+constexpr std::wstring_view kBraveClassPrefix = L"Brave";
+
+bool ClassNameMatches(std::wstring_view class_name,
+                      std::wstring_view chrome_class_name) {
+  if (class_name == chrome_class_name) {
+    return true;
+  }
+  return class_name.size() > chrome_class_name.size() &&
+         class_name.starts_with(kBraveClassPrefix) &&
+         class_name.substr(kBraveClassPrefix.size()) == chrome_class_name;
+}
+
+bool CreateSingleClassCondition(const ComPtr<IUIAutomation>& automation,
+                                std::wstring_view class_name,
+                                ComPtr<IUIAutomationCondition>* condition) {
   if (!automation || class_name.empty() || !condition) {
     return false;
   }
@@ -124,6 +143,51 @@ bool CreateClassCondition(const ComPtr<IUIAutomation>& automation,
                                           condition->ReleaseAndGetAddressOf()));
 }
 
+// Builds one condition matching any of `class_names` or their Brave-prefixed
+// spellings (see `kBraveClassPrefix`). Property conditions compare exactly, so
+// fork renames must be OR-ed in explicitly.
+bool CreateClassCondition(const ComPtr<IUIAutomation>& automation,
+                          std::initializer_list<std::wstring_view> class_names,
+                          ComPtr<IUIAutomationCondition>* condition) {
+  if (!automation || class_names.size() == 0 || !condition) {
+    return false;
+  }
+
+  std::vector<ComPtr<IUIAutomationCondition>> alternatives;
+  for (const std::wstring_view name : class_names) {
+    if (!CreateSingleClassCondition(automation, name,
+                                    &alternatives.emplace_back())) {
+      return false;
+    }
+    if (!name.starts_with(kBraveClassPrefix)) {
+      const std::wstring brave_name = std::wstring(kBraveClassPrefix)
+                                          .append(name);
+      if (!CreateSingleClassCondition(automation, brave_name,
+                                      &alternatives.emplace_back())) {
+        return false;
+      }
+    }
+  }
+
+  if (alternatives.size() == 1) {
+    *condition = std::move(alternatives.front());
+    return true;
+  }
+
+  ComPtr<IUIAutomationCondition> combined = std::move(alternatives.front());
+  for (size_t i = 1; i < alternatives.size(); ++i) {
+    ComPtr<IUIAutomationCondition> next;
+    if (FAILED(automation->CreateOrCondition(combined.Get(),
+                                             alternatives[i].Get(),
+                                             next.ReleaseAndGetAddressOf()))) {
+      return false;
+    }
+    combined = std::move(next);
+  }
+  *condition = std::move(combined);
+  return true;
+}
+
 bool InitializeClassConditions(UiaSession* session) {
   if (!session || !session->automation) {
     return false;
@@ -131,28 +195,32 @@ bool InitializeClassConditions(UiaSession* session) {
 
   auto& conditions = session->class_conditions;
   return CreateClassCondition(session->automation,
-                              L"TabStrip::TabDragContextImpl",
+                              {L"TabStrip::TabDragContextImpl"},
                               &conditions.tab_strip_drag_context) &&
-         CreateClassCondition(session->automation, L"TabContainerImpl",
+         CreateClassCondition(session->automation,
+                              {L"TabContainerImpl", L"BraveTabContainer"},
                               &conditions.tab_container_impl) &&
          CreateClassCondition(
-             session->automation, L"VerticalUnpinnedTabContainerView",
+             session->automation, {L"VerticalUnpinnedTabContainerView"},
              &conditions.vertical_unpinned_tab_container_view) &&
-         CreateClassCondition(session->automation, L"UnpinnedTabContainerView",
+         CreateClassCondition(session->automation, {L"UnpinnedTabContainerView"},
                               &conditions.unpinned_tab_container_view) &&
-         CreateClassCondition(session->automation, L"Tab", &conditions.tab) &&
-         CreateClassCondition(session->automation, L"VerticalTabView",
+         CreateClassCondition(session->automation, {L"Tab"},
+                              &conditions.tab) &&
+         CreateClassCondition(session->automation, {L"VerticalTabView"},
                               &conditions.vertical_tab_view) &&
-         CreateClassCondition(session->automation, L"TabView",
+         CreateClassCondition(session->automation, {L"TabView"},
                               &conditions.tab_view) &&
-         CreateClassCondition(session->automation, L"TabCloseButton",
+         CreateClassCondition(session->automation, {L"TabCloseButton"},
                               &conditions.tab_close_button) &&
-         CreateClassCondition(session->automation, L"BookmarkButton",
+         CreateClassCondition(session->automation, {L"BookmarkButton"},
                               &conditions.bookmark_button) &&
-         CreateClassCondition(session->automation, L"MenuItemView",
+         CreateClassCondition(session->automation, {L"MenuItemView"},
                               &conditions.menu_item_view) &&
-         CreateClassCondition(session->automation, L"TabStripControlButton",
-                              &conditions.tab_strip_control_button);
+         CreateClassCondition(
+             session->automation,
+             {L"TabStripControlButton", L"BraveNewTabButton"},
+             &conditions.tab_strip_control_button);
 }
 
 UiaSession* GetUiaSession() {
@@ -212,11 +280,6 @@ class ScopedBstr {
   BSTR bstr_ = nullptr;
 };
 
-bool BstrEqualsStringView(BSTR bstr, std::wstring_view expected) {
-  return bstr != nullptr &&
-         std::wstring_view(bstr, SysStringLen(bstr)) == expected;
-}
-
 ComPtr<IUIAutomationElement> GetFocusedElement(const UiaSession& session) {
   ComPtr<IUIAutomationElement> focused;
   if (FAILED(session.automation->GetFocusedElement(
@@ -257,6 +320,13 @@ std::optional<std::wstring> GetStringProperty(
   return std::wstring(property.Ref().bstrVal);
 }
 
+// Chromium forks subclass Chrome's Views classes under their own prefix:
+// Brave renames `Tab` to `BraveTab`, `HorizontalTabStripRegionView` to
+// `BraveHorizontalTabStripRegionView`, and so on. Class-name matching accepts
+// either the Chromium name or its Brave-prefixed spelling. Divergences that a
+// prefix cannot express are handled with explicit variants where the
+// conditions are built (`BraveTabContainer` for `TabContainerImpl`,
+// `BraveNewTabButton` for the new-tab `TabStripControlButton`).
 bool HasClassName(const ComPtr<IUIAutomationElement>& element,
                   std::wstring_view expected_class_name) {
   if (!element) {
@@ -269,7 +339,9 @@ bool HasClassName(const ComPtr<IUIAutomationElement>& element,
     return false;
   }
 
-  return BstrEqualsStringView(class_name.Get(), expected_class_name);
+  return ClassNameMatches(
+      std::wstring_view(class_name.Get(), class_name.Length()),
+      expected_class_name);
 }
 
 bool HasAnyClassName(
@@ -287,7 +359,9 @@ bool HasAnyClassName(
 
   const std::wstring_view class_name_view(class_name.Get(),
                                           class_name.Length());
-  return std::ranges::contains(expected_class_names, class_name_view);
+  return std::ranges::any_of(expected_class_names, [&](std::wstring_view name) {
+    return ClassNameMatches(class_name_view, name);
+  });
 }
 
 ComPtr<IUIAutomationElement> FindBrowserViewFromTopChrome(
@@ -438,7 +512,7 @@ std::optional<int> CountDescendantsByClassRaw(
 ComPtr<IUIAutomationElement> FindSiblingByClass(
     const UiaSession& session,
     const ComPtr<IUIAutomationElement>& element,
-    std::wstring_view class_name) {
+    std::initializer_list<std::wstring_view> class_names) {
   if (!element || !session.control_view_walker) {
     return nullptr;
   }
@@ -451,7 +525,7 @@ ComPtr<IUIAutomationElement> FindSiblingByClass(
                      : session.control_view_walker->GetPreviousSiblingElement(
                            element.Get(), current.ReleaseAndGetAddressOf());
     while (SUCCEEDED(hr) && current) {
-      if (HasClassName(current, class_name)) {
+      if (HasAnyClassName(current, class_names)) {
         return current;
       }
 
@@ -559,17 +633,21 @@ ComPtr<IUIAutomationElement> FindShallowDescendantByClasses(
     const std::wstring_view class_name_view =
         class_name ? std::wstring_view(class_name.Get(), class_name.Length())
                    : std::wstring_view();
-    if (std::ranges::contains(target_class_names, class_name_view)) {
+    if (std::ranges::any_of(target_class_names, [&](std::wstring_view name) {
+          return ClassNameMatches(class_name_view, name);
+        })) {
       return current.element;
     }
 
     if (current.depth >= kMaxDepth) {
       continue;
     }
-    if (std::ranges::contains(
+    if (std::ranges::any_of(
             std::initializer_list<std::wstring_view>{
                 L"MultiContentsView", L"WebView", L"ContentsWebView"},
-            class_name_view) ||
+            [&](std::wstring_view name) {
+              return ClassNameMatches(class_name_view, name);
+            }) ||
         HasNativeWindowHandle(current.element)) {
       continue;
     }
@@ -667,8 +745,8 @@ std::optional<TabContainer> FindTabContainerInRegion(
 
   if (const auto tab_strip = FindFirstDescendantByClass(
           region, session.class_conditions.tab_strip_drag_context)) {
-    if (const auto container =
-            FindSiblingByClass(session, tab_strip, L"TabContainerImpl")) {
+    if (const auto container = FindSiblingByClass(
+            session, tab_strip, {L"TabContainerImpl", L"BraveTabContainer"})) {
       return TabContainer{container, TabContainerKind::kHorizontal};
     }
   }
