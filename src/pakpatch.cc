@@ -188,9 +188,19 @@ bool PatchSettingsHtml(uint8_t* begin, uint32_t size, size_t& new_len) {
   // RemoveUpdateError
   // if (IsNeedPortable())
   {
+    // Chrome 151 migrated the About page from Polymer to Lit, changing the
+    // hidden bindings (chromium commit 204e553199ff). Keep both generations:
+    // Lit (Chrome 151+) and Polymer (Chrome <=150 and Chromium-fork browsers
+    // still on an older base, e.g. Brave 150.x); each replacement is a no-op
+    // when its binding is absent.
     ReplaceStringInPlace(html, R"(?hidden="${!this.showUpdateStatus_}")",
                          R"(hidden="true")");
     ReplaceStringInPlace(html, R"(?hidden="${!this.shouldShowIcons_()}")",
+                         R"(hidden="true")");
+    ReplaceStringInPlace(html, R"(hidden="[[!showUpdateStatus_]]")",
+                         R"(hidden="true")");
+    ReplaceStringInPlace(html,
+                         R"(hidden="[[!shouldShowIcons_(showUpdateStatus_)]]")",
                          R"(hidden="true")");
   }
 

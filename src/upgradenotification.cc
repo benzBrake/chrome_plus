@@ -77,8 +77,10 @@ std::wstring RunningChromeVersion() {
 }
 
 // `InstallUtil::GetChromeVersion` reads `pv` (REG_SZ) under
-// `...\Google\Update\Clients\{GUID}` (chrome/installer/util/install_util.cc).
-// When a co-installed or policy-managed Chrome keeps that value ahead of the
+// `...\Google\Update\Clients\{GUID}` (chrome/installer/util/install_util.cc);
+// Chromium forks read their own updater key instead (Brave:
+// `...\BraveSoftware\Update\Clients\{GUID}`, same `pv` convention). When a
+// co-installed or policy-managed Chrome keeps that value ahead of the
 // portable binary (or when it is missing), `InstalledVersionPoller` reports
 // `kNormalUpdate`, which `upgrade_detector_impl.cc` surfaces as a false
 // `UPGRADE_AVAILABLE_REGULAR`, and the browser shows "Chrome is out of date /
@@ -142,8 +144,10 @@ LSTATUS APIENTRY MyRegQueryValueExW(HKEY hKey,
 // prompt persists with `MyRegQueryValueExW` never getting a chance to answer.
 // When that specific open fails, hand back a stand-in handle (a duplicate of
 // the requested root) so the `pv` read proceeds and is answered with the
-// running version. Matching with a trailing separator keeps this off the
-// sibling `ClientState` key.
+// running version. The same holds for Brave's
+// `...\BraveSoftware\Update\Clients\{GUID}` on a portable Brave install, so
+// both updater roots are matched. Matching with a trailing separator keeps
+// this off the sibling `ClientState` key.
 LSTATUS APIENTRY MyRegOpenKeyExW(HKEY hKey,
                                  LPCWSTR lpSubKey,
                                  DWORD ulOptions,
@@ -152,7 +156,8 @@ LSTATUS APIENTRY MyRegOpenKeyExW(HKEY hKey,
   const LSTATUS result =
       RawRegOpenKeyExW(hKey, lpSubKey, ulOptions, samDesired, phkResult);
   if (result != ERROR_SUCCESS && phkResult && lpSubKey &&
-      StrStrIW(lpSubKey, L"Google\\Update\\Clients\\")) {
+      (StrStrIW(lpSubKey, L"Google\\Update\\Clients\\") ||
+       StrStrIW(lpSubKey, L"BraveSoftware\\Update\\Clients\\"))) {
     if (RawRegOpenKeyExW(hKey, L"", 0, samDesired, phkResult) ==
         ERROR_SUCCESS) {
       DebugLog(
