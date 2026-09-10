@@ -18,7 +18,7 @@ namespace {
 static auto RawRegOpenKeyExW = RegOpenKeyExW;
 static auto RawRegQueryValueExW = RegQueryValueExW;
 
-// Read the running browser version from the loaded `chrome.dll`'s embedded
+// Read the running browser version from the loaded browser DLL's embedded
 // version resource, which is the same `VS_FIXEDFILEINFO` that
 // `version_info::GetVersion` uses. The value `InstalledVersionPoller` compares
 // the registry `pv` against
@@ -27,8 +27,14 @@ static auto RawRegQueryValueExW = RegQueryValueExW;
 // `FindResource`/`LoadResource` are `kernel32`, so this avoids
 // `GetFileVersionInfo*` since chrome_plus ships as `version.dll` and proxies
 // the real one.
+//
+// Brave keeps Chromium's `chrome.dll` name; Whale loads `whale.dll` from the
+// application directory instead.
 std::wstring ComputeRunningChromeVersion() {
   HMODULE chrome_dll = GetModuleHandleW(L"chrome.dll");
+  if (!chrome_dll) {
+    chrome_dll = GetModuleHandleW(L"whale.dll");
+  }
   if (!chrome_dll) {
     return {};
   }
@@ -79,7 +85,8 @@ std::wstring RunningChromeVersion() {
 // `InstallUtil::GetChromeVersion` reads `pv` (REG_SZ) under
 // `...\Google\Update\Clients\{GUID}` (chrome/installer/util/install_util.cc);
 // Chromium forks read their own updater key instead (Brave:
-// `...\BraveSoftware\Update\Clients\{GUID}`, same `pv` convention). When a
+// `...\BraveSoftware\Update\Clients\{GUID}`, Whale:
+// `...\Naver\WhaleUpdate\Clients\{GUID}`, same `pv` convention). When a
 // co-installed or policy-managed Chrome keeps that value ahead of the
 // portable binary (or when it is missing), `InstalledVersionPoller` reports
 // `kNormalUpdate`, which `upgrade_detector_impl.cc` surfaces as a false
@@ -145,9 +152,10 @@ LSTATUS APIENTRY MyRegQueryValueExW(HKEY hKey,
 // When that specific open fails, hand back a stand-in handle (a duplicate of
 // the requested root) so the `pv` read proceeds and is answered with the
 // running version. The same holds for Brave's
-// `...\BraveSoftware\Update\Clients\{GUID}` on a portable Brave install, so
-// both updater roots are matched. Matching with a trailing separator keeps
-// this off the sibling `ClientState` key.
+// `...\BraveSoftware\Update\Clients\{GUID}` and Whale's
+// `...\Naver\WhaleUpdate\Clients\{GUID}` on portable installs, so all three
+// updater roots are matched. Matching with a trailing separator keeps this off
+// the sibling `ClientState` key.
 LSTATUS APIENTRY MyRegOpenKeyExW(HKEY hKey,
                                  LPCWSTR lpSubKey,
                                  DWORD ulOptions,
@@ -157,7 +165,8 @@ LSTATUS APIENTRY MyRegOpenKeyExW(HKEY hKey,
       RawRegOpenKeyExW(hKey, lpSubKey, ulOptions, samDesired, phkResult);
   if (result != ERROR_SUCCESS && phkResult && lpSubKey &&
       (StrStrIW(lpSubKey, L"Google\\Update\\Clients\\") ||
-       StrStrIW(lpSubKey, L"BraveSoftware\\Update\\Clients\\"))) {
+       StrStrIW(lpSubKey, L"BraveSoftware\\Update\\Clients\\") ||
+       StrStrIW(lpSubKey, L"Naver\\WhaleUpdate\\Clients\\"))) {
     if (RawRegOpenKeyExW(hKey, L"", 0, samDesired, phkResult) ==
         ERROR_SUCCESS) {
       DebugLog(
