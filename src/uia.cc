@@ -106,21 +106,32 @@ UiaSession& GetThreadLocalUiaSession() {
 
 // Chromium forks subclass Chrome's Views classes under their own prefix:
 // Brave renames `Tab` to `BraveTab`, `HorizontalTabStripRegionView` to
-// `BraveHorizontalTabStripRegionView`, and so on. Class-name matching accepts
-// either the Chromium name or its Brave-prefixed spelling. Divergences that a
-// prefix cannot express are handled with explicit variants where the
-// conditions are built (`BraveTabContainer` for `TabContainerImpl`,
-// `BraveNewTabButton` for the new-tab `TabStripControlButton`).
-constexpr std::wstring_view kBraveClassPrefix = L"Brave";
+// `BraveHorizontalTabStripRegionView`, and so on; Whale renames
+// `TabContainerImpl` to `WhaleTabContainerImpl` but keeps `Tab` and other
+// names unchanged. Class-name matching accepts either the Chromium name or
+// any fork-prefixed spelling; unmatched spellings simply never hit.
+// Divergences that a prefix cannot express are handled with explicit variants
+// where the conditions are built (`BraveTabContainer` for `TabContainerImpl`,
+// `BraveNewTabButton`/`WhaleNewTabButton` for the new-tab
+// `TabStripControlButton`).
+constexpr std::wstring_view kForkClassPrefixes[] = {L"Brave", L"Whale"};
+
+bool IsForkPrefixedName(std::wstring_view class_name) {
+  return std::ranges::any_of(kForkClassPrefixes, [&](std::wstring_view prefix) {
+    return class_name.starts_with(prefix);
+  });
+}
 
 bool ClassNameMatches(std::wstring_view class_name,
                       std::wstring_view chrome_class_name) {
   if (class_name == chrome_class_name) {
     return true;
   }
-  return class_name.size() > chrome_class_name.size() &&
-         class_name.starts_with(kBraveClassPrefix) &&
-         class_name.substr(kBraveClassPrefix.size()) == chrome_class_name;
+  return std::ranges::any_of(kForkClassPrefixes, [&](std::wstring_view prefix) {
+    return class_name.size() > chrome_class_name.size() &&
+           class_name.starts_with(prefix) &&
+           class_name.substr(prefix.size()) == chrome_class_name;
+  });
 }
 
 bool CreateSingleClassCondition(const ComPtr<IUIAutomation>& automation,
@@ -143,9 +154,9 @@ bool CreateSingleClassCondition(const ComPtr<IUIAutomation>& automation,
                                           condition->ReleaseAndGetAddressOf()));
 }
 
-// Builds one condition matching any of `class_names` or their Brave-prefixed
-// spellings (see `kBraveClassPrefix`). Property conditions compare exactly, so
-// fork renames must be OR-ed in explicitly.
+// Builds one condition matching any of `class_names` or their fork-prefixed
+// spellings (see `kForkClassPrefixes`). Property conditions compare exactly,
+// so fork renames must be OR-ed in explicitly.
 bool CreateClassCondition(const ComPtr<IUIAutomation>& automation,
                           std::initializer_list<std::wstring_view> class_names,
                           ComPtr<IUIAutomationCondition>* condition) {
@@ -159,10 +170,14 @@ bool CreateClassCondition(const ComPtr<IUIAutomation>& automation,
                                     &alternatives.emplace_back())) {
       return false;
     }
-    if (!name.starts_with(kBraveClassPrefix)) {
-      const std::wstring brave_name = std::wstring(kBraveClassPrefix)
-                                          .append(name);
-      if (!CreateSingleClassCondition(automation, brave_name,
+    // Fork-specific renames (`BraveTabContainer`) are already exact forms and
+    // are not prefixed again.
+    if (IsForkPrefixedName(name)) {
+      continue;
+    }
+    for (const std::wstring_view prefix : kForkClassPrefixes) {
+      const std::wstring fork_name = std::wstring(prefix).append(name);
+      if (!CreateSingleClassCondition(automation, fork_name,
                                       &alternatives.emplace_back())) {
         return false;
       }
@@ -219,7 +234,8 @@ bool InitializeClassConditions(UiaSession* session) {
                               &conditions.menu_item_view) &&
          CreateClassCondition(
              session->automation,
-             {L"TabStripControlButton", L"BraveNewTabButton"},
+             {L"TabStripControlButton", L"BraveNewTabButton",
+              L"WhaleNewTabButton"},
              &conditions.tab_strip_control_button);
 }
 
@@ -322,11 +338,13 @@ std::optional<std::wstring> GetStringProperty(
 
 // Chromium forks subclass Chrome's Views classes under their own prefix:
 // Brave renames `Tab` to `BraveTab`, `HorizontalTabStripRegionView` to
-// `BraveHorizontalTabStripRegionView`, and so on. Class-name matching accepts
-// either the Chromium name or its Brave-prefixed spelling. Divergences that a
-// prefix cannot express are handled with explicit variants where the
-// conditions are built (`BraveTabContainer` for `TabContainerImpl`,
-// `BraveNewTabButton` for the new-tab `TabStripControlButton`).
+// `BraveHorizontalTabStripRegionView`, and so on; Whale renames
+// `TabContainerImpl` to `WhaleTabContainerImpl` but keeps `Tab` and other
+// names unchanged. Class-name matching accepts either the Chromium name or
+// any fork-prefixed spelling. Divergences that a prefix cannot express are
+// handled with explicit variants where the conditions are built
+// (`BraveTabContainer` for `TabContainerImpl`, `BraveNewTabButton`/
+// `WhaleNewTabButton` for the new-tab `TabStripControlButton`).
 bool HasClassName(const ComPtr<IUIAutomationElement>& element,
                   std::wstring_view expected_class_name) {
   if (!element) {
