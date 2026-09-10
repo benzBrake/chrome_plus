@@ -20,7 +20,8 @@ bool IsPolicyKey(LPCWSTR lpSubKey) {
   if (StrStrIW(lpSubKey, L"Policies\\Google\\Chrome") ||
       StrStrIW(lpSubKey, L"Policies\\Microsoft\\Edge") ||
       StrStrIW(lpSubKey, L"Policies\\Chromium") ||
-      StrStrIW(lpSubKey, L"Policies\\BraveSoftware\\Brave")) {
+      StrStrIW(lpSubKey, L"Policies\\BraveSoftware\\Brave") ||
+      StrStrIW(lpSubKey, L"Policies\\Naver\\Whale")) {
     return true;
   }
   return false;
