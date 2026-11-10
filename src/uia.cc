@@ -28,7 +28,7 @@ class ScopedVariant {
   ScopedVariant& operator=(ScopedVariant&&) = delete;
 
   VARIANT* Ptr() { return &value_; }
-  VARIANT& Ref() { return &value_; }
+  VARIANT& Ref() { return value_; }
 
  private:
   VARIANT value_;
