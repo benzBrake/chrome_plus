@@ -11,7 +11,7 @@
 
 namespace {
 
-static auto RawRegOpenKeyExW = RegOpenKeyExW;
+auto RawRegOpenKeyExW = RegOpenKeyExW;
 
 bool IsPolicyKey(LPCWSTR lpSubKey) {
   if (!lpSubKey) {
@@ -49,8 +49,7 @@ void IgnorePolicies() {
 
   DetourTransactionBegin();
   DetourUpdateThread(GetCurrentThread());
-  DetourAttach(reinterpret_cast<LPVOID*>(&RawRegOpenKeyExW),
-               reinterpret_cast<void*>(MyRegOpenKeyExW));
+  DetourAttach(&RawRegOpenKeyExW, MyRegOpenKeyExW);
   auto status = DetourTransactionCommit();
   if (status != NO_ERROR) {
     DebugLog(L"IgnorePolicies failed: {}", status);

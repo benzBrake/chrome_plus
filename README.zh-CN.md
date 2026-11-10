@@ -12,7 +12,7 @@ Chrome++ Next 是一个 `version.dll` 注入项目，会与 `chrome.exe` 一同�
 - 优先处理扩展难以实现、或外部方案无法很好解决的能力。
 
 ## 支持策略
-- 只接受最新版稳定版 Google Chrome 的问题反馈。
+- 稳定版 Google Chrome 是主要支持目标，也欢迎 Beta、Dev 和 Canary 的回归问题反馈。
 - 其它 Chromium 分支浏览器能用则用，但不属于正式支持目标。
 - 具体反馈要求以 GitHub Issues 页面和表单为准。
 
@@ -20,12 +20,20 @@ Chrome++ Next 是一个 `version.dll` 注入项目，会与 `chrome.exe` 一同�
 - [Releases](https://github.com/Bush2021/chrome_plus/releases)
 
 ## 安装
+
+推荐使用 [Pitstop](https://github.com/Bush2021/pitstop)，自动部署 Chrome 和 Chrome++ Next，并在图形界面中管理配置与更新。开启自动更新后，Chrome 更新也可以通过 Chrome 原生的“重新启动以更新”完成。
+
+<details>
+<summary>手动安装</summary>
+
 - 请确保将 `version.dll` 放在 `chrome.exe` 同一目录。
-- 推荐使用 [Chrome 离线安装包](https://github.com/Bush2021/chrome_installer)，解压两次后直接使用解包得到的 Chrome 程序文件。
+- 如需 Chrome 程序文件，可使用 [Chrome 离线安装包](https://github.com/Bush2021/chrome_installer)，解压两次后直接使用解包得到的 Chrome 程序文件。
 - 本项目面向便携式 Chrome 部署场景。如果系统中保留了 updater 组件或其它 Chrome 遗留项，由此产生的环境问题需要自行处理。
 - 如果 `version.dll` 没有被正确加载，可以尝试 [setdll](https://github.com/Bush2021/setdll/)。
 - 便携版 Brave 同样适用：将 `version.dll` 放在 `brave.exe` 同目录即可（Brave 保留了 Chromium 的 `chrome.dll` 版本目录结构，`brave.exe` 静态导入 `version.dll`，且 UIA 类名匹配会自动兼容 Brave 的 `Brave` 前缀重命名，标签页手势无需额外配置）。Brave 仍不属于上述正式支持目标。
 - 便携版 Naver Whale 同样适用：将 `version.dll` 放在 `whale.exe` 同目录即可。Whale 静态导入 `version.dll`，保留 Chrome 的 `Chrome_WidgetWin_1` 窗口类；UIA 类名匹配会自动兼容 Whale 的 `Whale` 前缀重命名（`WhaleTabContainerImpl`、`WhaleNewTabButton`，其余类名与 Chromium 一致），升级提示抑制覆盖 Whale 的 `Naver\WhaleUpdate` 注册表根。Whale 仍不属于上述正式支持目标。
+
+</details>
 
 ## 功能概览
 ### 标签页与书签行为
@@ -36,6 +44,7 @@ Chrome++ Next 是一个 `version.dll` 注入项目，会与 `chrome.exe` 一同�
 - 按住右键时滚轮切换标签页。
 - 鼠标在标签页上停留后自动激活该标签页。
 - 将地址栏输入内容或书签在新标签页中打开。
+- 通过 `right_click_newtab` 右键新标签按钮，将剪贴板内容粘贴并打开到新标签页。
 - 通过 `new_tab_disable` 和 `new_tab_disable_name` 控制新标签页判定。
 
 ### 快捷键与按键映射
@@ -52,7 +61,6 @@ Chrome++ Next 是一个 `version.dll` 注入项目，会与 `chrome.exe` 一同�
 - 通过 `ignore_policies` 忽略企业策略。
 - 仅在 Chrome++ 自身导致启动崩溃时再考虑启用 `win32k` 兜底选项。
 - 通过 `suppress_false_upgrade_notification` 抑制便携版上错误的“已过期”升级提示（同时覆盖 Brave 的 `BraveSoftware\Update` 与 Whale 的 `Naver\WhaleUpdate` 注册表根）。
-- `show_password` 等其它公开选项仍以 [`src/chrome++.ini`](src/chrome++.ini) 为准。
 
 ## 配置说明
 - 完整公开配置请参见 [`src/chrome++.ini`](src/chrome++.ini)。

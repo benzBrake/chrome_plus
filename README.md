@@ -12,7 +12,7 @@ Chrome++ Next is a `version.dll` injection project for Google Chrome. It is load
 - Prioritizes capabilities that browser extensions cannot implement well, or that external tools do not solve cleanly.
 
 ## Support Policy
-- Bug reports are accepted only for the latest stable Google Chrome.
+- Stable Google Chrome is the primary support target. Reports of regressions in Beta, Dev, and Canary are also welcome.
 - Other Chromium-based browsers may work, but they are not supported targets.
 - Reporting requirements are enforced in the GitHub Issues templates.
 
@@ -20,12 +20,20 @@ Chrome++ Next is a `version.dll` injection project for Google Chrome. It is load
 - [Latest releases](https://github.com/Bush2021/chrome_plus/releases)
 
 ## Installation
+
+Use [Pitstop](https://github.com/Bush2021/pitstop) to set up Chrome and Chrome++ Next and manage settings and updates through a graphical interface. With automatic updates enabled, Chrome updates can also be applied through Chrome's native "Relaunch to update".
+
+<details>
+<summary>Manual installation</summary>
+
 - Put `version.dll` in the same directory as `chrome.exe`.
-- The recommended installation method is to use the [Chrome offline installer package](https://github.com/Bush2021/chrome_installer), extract it twice, and use the unpacked Chrome program files directly.
+- For Chrome program files, use the [Chrome offline installer package](https://github.com/Bush2021/chrome_installer), extract it twice, and use the unpacked Chrome program files directly.
 - The project is intended for portable Chrome deployments. If you keep updater components or other Chrome remnants on the system, you are responsible for the resulting environment-specific behavior.
 - If `version.dll` is not loaded correctly, you can try [setdll](https://github.com/Bush2021/setdll/).
 - Portable Brave works with the same steps: place `version.dll` next to `brave.exe` (Brave keeps Chromium's `chrome.dll` version-directory layout and statically imports `version.dll`, and UIA class matching accepts Brave's `Brave`-prefixed class names, so tab gestures work without extra configuration). Brave stays outside the supported targets above.
 - Portable Naver Whale works the same way: place `version.dll` next to `whale.exe`. Whale statically imports `version.dll`, keeps Chrome's `Chrome_WidgetWin_1` window class, and UIA class matching accepts Whale's `Whale`-prefixed renames (`WhaleTabContainerImpl`, `WhaleNewTabButton`) while the rest keep Chromium names. Upgrade-notification suppression covers Whale's `Naver\WhaleUpdate` registry root. Whale stays outside the supported targets above.
+
+</details>
 
 ## Capability Overview
 ### Tab and bookmark behavior
@@ -36,6 +44,7 @@ Chrome++ Next is a `version.dll` injection project for Google Chrome. It is load
 - Switch tabs with the mouse wheel while holding the right mouse button.
 - Activate a tab by resting the cursor on it.
 - Open omnibox input or bookmarks in a new tab.
+- Right-click the New Tab button to paste and go the clipboard text in a new tab with `right_click_newtab`.
 - Control new-tab detection through `new_tab_disable` and `new_tab_disable_name`.
 
 ### Hotkeys and input remapping
@@ -52,7 +61,6 @@ Chrome++ Next is a `version.dll` injection project for Google Chrome. It is load
 - Ignore enterprise policies with `ignore_policies`.
 - Enable the `win32k` fallback only when Chrome++ itself causes startup crashes.
 - Suppress Chrome's false "out of date" upgrade notification on portable installs with `suppress_false_upgrade_notification` (also covers Brave's `BraveSoftware\Update` and Whale's `Naver\WhaleUpdate` registry roots).
-- Additional public options such as `show_password` remain documented in [`src/chrome++.ini`](src/chrome++.ini).
 
 ## Configuration Reference
 - See [`src/chrome++.ini`](src/chrome++.ini) for the full public configuration surface.

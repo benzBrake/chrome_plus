@@ -1,7 +1,11 @@
 #include <windows.h>
 
 #include <psapi.h>
-#include <stdio.h>
+
+#include <atomic>
+#include <optional>
+#include <string>
+#include <thread>
 
 #include "detours.h"
 
@@ -16,13 +20,17 @@
 #include "policies.h"
 #include "portable.h"
 #include "tabbookmark.h"
+#include "update.h"
 #include "upgradenotification.h"
 #include "utils.h"
 #include "version.h"
 
 using Startup = int (*)();
-static bool should_run_exit_cmd = false;
+constexpr DWORD kExitCommandsWaitMs = 3000;
+constexpr DWORD kOwnershipPollMs = 50;
+static std::atomic<bool> should_run_exit_cmd = false;
 Startup ExeMain = nullptr;
+auto RawExitProcess = ExitProcess;
 
 void ChromePlus() {
   // Shortcut.
@@ -46,30 +54,117 @@ void ChromePlus() {
   // Patch the pak file.
   PakPatch();
 
-  // Suppress Chrome's false "out of date" upgrade notification.
-  SuppressFalseUpgradeNotification();
+  UpgradeNotification();
 
   // Process the hotkey.
   GetHotkey();
 }
 
+// Returns the ID of the user data directory this process owns as a browser,
+// empty when it doesn't own one yet. `ProcessSingleton::Create` in
+// chrome/browser/process_singleton_win.cc titles a message window with the
+// directory. `base/win/message_window.cc` names the class, which other windows
+// of the process share, but their titles aren't directories.
+std::wstring FindOwnedUserDataDirId() {
+  constexpr wchar_t kWindowClass[] = L"Chrome_MessageWindow";
+  for (HWND window =
+           ::FindWindowExW(HWND_MESSAGE, nullptr, kWindowClass, nullptr);
+       window;
+       window = ::FindWindowExW(HWND_MESSAGE, window, kWindowClass, nullptr)) {
+    DWORD process_id = 0;
+    ::GetWindowThreadProcessId(window, &process_id);
+    if (process_id != ::GetCurrentProcessId()) {
+      continue;
+    }
+    wchar_t title[MAX_PATH] = {};
+    ::GetWindowTextW(window, title, MAX_PATH);
+    std::wstring directory_id = GetDirectoryId(title);
+    if (!directory_id.empty()) {
+      return directory_id;
+    }
+  }
+  return L"";
+}
+
+// Every `--portable` process gets here, including one that only hands its
+// command line to the browser on the same user data directory. The startup and
+// exit commands belong to the browser, and a process that hands off exits
+// without owning the directory, so this waits on a thread for that ownership.
+// `ShutdownPostThreadsStop` in chrome/browser/lifetime/browser_shutdown.cc
+// relaunches the browser while the old one is still exiting, so ownership also
+// isn't enough: the old browser may not have finished its exit commands. The
+// mutex orders the two. Its name comes from the directory's ID because Chrome
+// locks a file inside the directory, which makes every spelling of its path one
+// browser.
+void RunStartupCommands() {
+  std::thread([] {
+    std::wstring directory_id = FindOwnedUserDataDirId();
+    while (directory_id.empty()) {
+      ::Sleep(kOwnershipPollMs);
+      directory_id = FindOwnedUserDataDirId();
+    }
+    const std::wstring mutex_name = L"Local\\chrome++-launch-" + directory_id;
+    const HANDLE mutex = ::CreateMutexW(nullptr, FALSE, mutex_name.c_str());
+    if (!mutex || ::WaitForSingleObject(mutex, INFINITE) == WAIT_FAILED) {
+      return;
+    }
+    should_run_exit_cmd = true;
+    LaunchCommands(config.GetLaunchOnStartup());
+    // A mutex goes with the thread that owns it, so this thread has to outlive
+    // the browser. Its end abandons the mutex, and the next browser's wait
+    // returns WAIT_ABANDONED, which here means only that the holder is gone.
+    // https://learn.microsoft.com/en-us/windows/win32/sync/mutex-objects
+    ::Sleep(INFINITE);
+  }).detach();
+}
+
+// ExitProcess ends every other thread before DLL_PROCESS_DETACH, and with them
+// the owner of the mutex. A relaunched browser would then run its startup
+// commands ahead of the exit commands, which may be a `taskkill` of what those
+// startup commands started. So run the exit commands here, and let the mutex
+// go only when they finish.
+// https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-exitprocess
+DECLSPEC_NORETURN void WINAPI MyExitProcess(UINT exit_code) {
+  if (should_run_exit_cmd.exchange(false)) {
+    LaunchCommands(config.GetLaunchOnExit(), kExitCommandsWaitMs);
+  }
+  RawExitProcess(exit_code);
+}
+
+void InstallExitHook() {
+  DetourTransactionBegin();
+  DetourUpdateThread(GetCurrentThread());
+  DetourAttach(&RawExitProcess, MyExitProcess);
+  auto status = DetourTransactionCommit();
+  if (status != NO_ERROR) {
+    DebugLog(L"InstallExitHook failed: {}", status);
+  }
+}
+
 void ChromePlusCommand(LPWSTR param) {
-  if (!wcsstr(param, L"--portable")) {
+  if (config.IsManagedUpdates() &&
+      GetSwitchValue(param, kFinishUpdateSwitch).has_value()) {
+    ExitProcess(FinishUpdate());
+  }
+  if (!GetSwitchValue(param, L"--portable").has_value()) {
     Portable(param);
   } else {
     ChromePlus();
-    LaunchCommands(config.GetLaunchOnStartup());
-    should_run_exit_cmd = true;
+    InstallExitHook();
+    RunStartupCommands();
   }
 }
 
 int Loader() {
   // Only main interface.
   LPWSTR param = GetCommandLineW();
-  // DebugLog(L"param {}", param);
-  if (!wcsstr(param, L"-type=")) {
+  // A switch without a value also means the browser (`GetProcessType` in
+  // chrome/install_static/install_util.cc).
+  const std::wstring process_type =
+      GetSwitchValue(param, L"--type").value_or(L"");
+  if (process_type.empty()) {
     ChromePlusCommand(param);
-  } else if (wcsstr(param, L"--type=renderer")) {
+  } else if (process_type == L"renderer") {
     // With in-process WebUI resource loading on (V1, crrev.com/c/5868139,
     // crbug.com/362511750), the browser fills `LocalResourceLoaderConfig`
     // (content/browser/webui/web_ui_impl.cc) and the renderer materializes
@@ -96,8 +191,7 @@ void InstallLoader() {
 
   DetourTransactionBegin();
   DetourUpdateThread(GetCurrentThread());
-  DetourAttach(reinterpret_cast<LPVOID*>(&ExeMain),
-               reinterpret_cast<void*>(Loader));
+  DetourAttach(&ExeMain, Loader);
   auto status = DetourTransactionCommit();
   if (status != NO_ERROR) {
     DebugLog(L"InstallLoader failed: {}", status);
@@ -115,9 +209,6 @@ BOOL WINAPI DllMain(HINSTANCE hModule, DWORD dwReason, LPVOID pv) {
     LoadSysDll(hModule);
 
     InstallLoader();
-  } else if (dwReason == DLL_PROCESS_DETACH && ::should_run_exit_cmd) {
-    LaunchCommands(config.GetLaunchOnExit());
-    should_run_exit_cmd = false;
   }
   return TRUE;
 }
