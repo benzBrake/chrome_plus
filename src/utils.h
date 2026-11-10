@@ -4,6 +4,7 @@
 #include <windows.h>
 
 #include <cstdint>
+#include <initializer_list>
 #include <span>
 #include <string>
 #include <string_view>
@@ -19,24 +20,12 @@ consteval uint32_t GetMagicCode() {
 
 // Chrome command IDs
 // https://source.chromium.org/chromium/chromium/src/+/main:chrome/app/chrome_command_ids.h?q=chrome_command_ids.h&ss=chromium%2Fchromium%2Fsrc
-#define IDC_NEW_TAB 34014
-#define IDC_CLOSE_TAB 34015
-#define IDC_SELECT_NEXT_TAB 34016
-#define IDC_SELECT_PREVIOUS_TAB 34017
-#define IDC_SELECT_TAB_0 34018
-#define IDC_SELECT_TAB_1 34019
-#define IDC_SELECT_TAB_2 34020
-#define IDC_SELECT_TAB_3 34021
-#define IDC_SELECT_TAB_4 34022
-#define IDC_SELECT_TAB_5 34023
-#define IDC_SELECT_TAB_6 34024
-#define IDC_SELECT_TAB_7 34025
-#define IDC_SELECT_LAST_TAB 34026
-#define IDC_FULLSCREEN 34030
-#define IDC_SHOW_TRANSLATE 35009
-#define IDC_WINDOW_CLOSE_OTHER_TABS 35023
-#define IDC_CLOSE_FIND_OR_STOP 37003
-#define IDC_UPGRADE_DIALOG 40024
+inline constexpr int IDC_NEW_TAB = 34014;
+inline constexpr int IDC_CLOSE_TAB = 34015;
+inline constexpr int IDC_SELECT_NEXT_TAB = 34016;
+inline constexpr int IDC_SELECT_PREVIOUS_TAB = 34017;
+inline constexpr int IDC_SHOW_TRANSLATE = 35009;
+inline constexpr int IDC_WINDOW_CLOSE_OTHER_TABS = 35023;
 
 // Global constants - use functions to avoid static initialization order issues
 const std::wstring& GetAppDir();
@@ -72,15 +61,20 @@ std::span<uint8_t> SearchMemory(std::span<uint8_t> src,
                                 std::span<const uint8_t> sub);
 
 // Parse the INI file
-std::wstring GetIniString(std::wstring_view section,
-                          std::wstring_view key,
-                          std::wstring_view default_value);
+std::wstring GetIniString(const wchar_t* section,
+                          const wchar_t* key,
+                          const wchar_t* default_value);
+int GetIniInt(const wchar_t* section, const wchar_t* key, int default_value);
 
 // Canonicalize the path
 std::wstring CanonicalizePath(const std::wstring& path);
 
 // Get the absolute path
 std::wstring GetAbsolutePath(const std::wstring& path);
+
+// Returns an ID shared by every path to a directory, empty when it can't be
+// opened.
+std::wstring GetDirectoryId(const std::wstring& path);
 
 // Expand environment variables in the path
 std::wstring ExpandEnvironmentPath(const std::wstring& path);
@@ -114,84 +108,14 @@ inline void DebugLog(std::wstring_view, auto&&...) {}
 // Window and message processing functions
 HWND GetTopWnd(HWND hwnd);
 void ExecuteCommand(int id, HWND hwnd = 0);
-void LaunchCommands(const std::wstring& get_commands);
+void LaunchCommands(const std::wstring& get_commands, DWORD wait_ms = 0);
 [[nodiscard]] bool IsChromeWindow(HWND hwnd);
+// Returns nullptr when the window under `pt` is not part of Chrome.
+[[nodiscard]] HWND GetChromeRootWindowAt(POINT pt);
 
-// Keyboard and mouse input functions
-// Template function for sending combined key operations - kept in header
-template <typename... T>
-void SendKey(T&&... keys) {
-  std::vector<typename std::common_type<T...>::type> keys_ = {
-      std::forward<T>(keys)...};
-  std::vector<INPUT> inputs{};
-  inputs.reserve(keys_.size() * 2);
-  for (auto& key : keys_) {
-    INPUT input = {0};
-    // Adjust mouse messages
-    switch (key) {
-      case VK_RBUTTON:
-        input.type = INPUT_MOUSE;
-        input.mi.dwFlags = GetSystemMetrics(SM_SWAPBUTTON) == TRUE
-                               ? MOUSEEVENTF_LEFTDOWN
-                               : MOUSEEVENTF_RIGHTDOWN;
-        input.mi.dwExtraInfo = GetMagicCode();
-        break;
-      case VK_LBUTTON:
-        input.type = INPUT_MOUSE;
-        input.mi.dwFlags = GetSystemMetrics(SM_SWAPBUTTON) == TRUE
-                               ? MOUSEEVENTF_RIGHTDOWN
-                               : MOUSEEVENTF_LEFTDOWN;
-        input.mi.dwExtraInfo = GetMagicCode();
-        break;
-      case VK_MBUTTON:
-        input.type = INPUT_MOUSE;
-        input.mi.dwFlags = MOUSEEVENTF_MIDDLEDOWN;
-        input.mi.dwExtraInfo = GetMagicCode();
-        break;
-      default:
-        input.type = INPUT_KEYBOARD;
-        input.ki.wVk = (WORD)key;
-        input.ki.dwFlags = KEYEVENTF_EXTENDEDKEY;
-        input.ki.dwExtraInfo = GetMagicCode();
-        break;
-    }
-    inputs.emplace_back(std::move(input));
-  }
-  for (auto& key : keys_) {
-    INPUT input = {0};
-    // Adjust mouse messages
-    switch (key) {
-      case VK_RBUTTON:
-        input.type = INPUT_MOUSE;
-        input.mi.dwFlags = GetSystemMetrics(SM_SWAPBUTTON) == TRUE
-                               ? MOUSEEVENTF_LEFTUP
-                               : MOUSEEVENTF_RIGHTUP;
-        input.mi.dwExtraInfo = GetMagicCode();
-        break;
-      case VK_LBUTTON:
-        input.type = INPUT_MOUSE;
-        input.mi.dwFlags = GetSystemMetrics(SM_SWAPBUTTON) == TRUE
-                               ? MOUSEEVENTF_RIGHTUP
-                               : MOUSEEVENTF_LEFTUP;
-        input.mi.dwExtraInfo = GetMagicCode();
-        break;
-      case VK_MBUTTON:
-        input.type = INPUT_MOUSE;
-        input.mi.dwFlags = MOUSEEVENTF_MIDDLEUP;
-        input.mi.dwExtraInfo = GetMagicCode();
-        break;
-      default:
-        input.type = INPUT_KEYBOARD;
-        input.ki.dwFlags = KEYEVENTF_KEYUP;
-        input.ki.wVk = (WORD)key;
-        input.ki.dwFlags = KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP;
-        input.ki.dwExtraInfo = GetMagicCode();
-        break;
-    }
-    inputs.emplace_back(std::move(input));
-  }
-  SendInput(static_cast<UINT>(inputs.size()), inputs.data(), sizeof(INPUT));
-}
+// Presses `keys` in order, then releases them in the same order. Mouse
+// buttons are sent as mouse input. Every event carries `GetMagicCode()`.
+void SendKey(std::initializer_list<UINT> keys);
 
 // Parse hotkey string like "Ctrl+Shift+A" into MAKELPARAM(modifiers, vk)
 // Supports modifiers: shift, ctrl/control, alt, win

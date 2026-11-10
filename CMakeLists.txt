@@ -153,6 +153,7 @@ add_library(chrome_plus SHARED
   src/portable.cc
   src/tabbookmark.cc
   src/uia.cc
+  src/update.cc
   src/upgradenotification.cc
   src/utils.cc
 )
@@ -188,7 +189,6 @@ endif()
 target_link_libraries(chrome_plus PRIVATE
   onecore
   propsys
-  oleacc
   detours
   mini_gzip
 )

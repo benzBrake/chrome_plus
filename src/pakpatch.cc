@@ -13,6 +13,7 @@
 #include "detours.h"
 
 #include "pakfile.h"
+#include "portable.h"
 #include "utils.h"
 #include "version.h"
 
@@ -25,10 +26,10 @@ namespace {
 #define BUILD_ARCH " (32-bit)"
 #endif
 
-static HANDLE resources_pak_map = nullptr;
+HANDLE resources_pak_map = nullptr;
 
-static auto RawCreateFileMapping = CreateFileMappingW;
-static auto RawMapViewOfFile = MapViewOfFile;
+auto RawCreateFileMapping = CreateFileMappingW;
+auto RawMapViewOfFile = MapViewOfFile;
 
 // `PakPatch()` runs in the browser and in every renderer (see the loader in
 // chrome++.cc: with in-process WebUI resource loading the renderer serves
@@ -52,12 +53,12 @@ struct PakBlobHeader {
 
 // Keeps the published section alive for the browser's lifetime so child
 // processes can open it by name.
-static HANDLE published_blob_section = nullptr;
+[[maybe_unused]] HANDLE published_blob_section = nullptr;
 
 // The loader calls `PakPatch()` only in the browser and in `--type=renderer`
-// children (chrome++.cc `Loader`), so no `-type=` switch means the browser.
+// children (chrome++.cc `Loader`), so an empty `--type` means the browser.
 bool IsBrowserProcess() {
-  return !wcsstr(GetCommandLineW(), L"-type=");
+  return GetSwitchValue(GetCommandLineW(), L"--type").value_or(L"").empty();
 }
 
 uint16_t GetPakTargetId() {
@@ -260,8 +261,7 @@ HANDLE WINAPI MyMapViewOfFile(_In_ HANDLE hFileMappingObject,
     resources_pak_map = nullptr;
     DetourTransactionBegin();
     DetourUpdateThread(GetCurrentThread());
-    DetourDetach(reinterpret_cast<LPVOID*>(&RawMapViewOfFile),
-                 reinterpret_cast<void*>(MyMapViewOfFile));
+    DetourDetach(&RawMapViewOfFile, MyMapViewOfFile);
     auto status = DetourTransactionCommit();
     if (status != NO_ERROR) {
       DebugLog(L"Unhook RawMapViewOfFile failed {}", status);
@@ -321,8 +321,7 @@ HANDLE WINAPI MyCreateFileMapping(_In_ HANDLE hFile,
     // No more hook needed.
     DetourTransactionBegin();
     DetourUpdateThread(GetCurrentThread());
-    DetourDetach(reinterpret_cast<LPVOID*>(&RawCreateFileMapping),
-                 reinterpret_cast<void*>(MyCreateFileMapping));
+    DetourDetach(&RawCreateFileMapping, MyCreateFileMapping);
     auto status = DetourTransactionCommit();
     if (status != NO_ERROR) {
       DebugLog(L"Unhook RawCreateFileMapping failed {}", status);
@@ -330,8 +329,7 @@ HANDLE WINAPI MyCreateFileMapping(_In_ HANDLE hFile,
 
     DetourTransactionBegin();
     DetourUpdateThread(GetCurrentThread());
-    DetourAttach(reinterpret_cast<LPVOID*>(&RawMapViewOfFile),
-                 reinterpret_cast<void*>(MyMapViewOfFile));
+    DetourAttach(&RawMapViewOfFile, MyMapViewOfFile);
     status = DetourTransactionCommit();
     if (status != NO_ERROR) {
       DebugLog(L"Hook RawMapViewOfFile failed {}", status);
@@ -348,8 +346,7 @@ HANDLE WINAPI MyCreateFileMapping(_In_ HANDLE hFile,
 void PakPatch() {
   DetourTransactionBegin();
   DetourUpdateThread(GetCurrentThread());
-  DetourAttach(reinterpret_cast<LPVOID*>(&RawCreateFileMapping),
-               reinterpret_cast<void*>(MyCreateFileMapping));
+  DetourAttach(&RawCreateFileMapping, MyCreateFileMapping);
   auto status = DetourTransactionCommit();
   if (status != NO_ERROR) {
     DebugLog(L"Hook RawCreateFileMapping failed {}", status);
